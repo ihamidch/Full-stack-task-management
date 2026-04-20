@@ -73,6 +73,7 @@ export default function BoardView() {
   const [activityLoading, setActivityLoading] = useState(false);
   const [newTasks, setNewTasks] = useState({});
   const [memberEmail, setMemberEmail] = useState('');
+  const [inviteMessage, setInviteMessage] = useState('');
 
   const tasksById = useMemo(() => {
     const m = {};
@@ -243,9 +244,12 @@ export default function BoardView() {
   async function inviteMember(e) {
     e.preventDefault();
     if (!memberEmail.trim()) return;
+    setError('');
+    setInviteMessage('');
     try {
-      await api.patch(`/boards/${boardId}`, { memberEmail: memberEmail.trim() });
+      const { data } = await api.patch(`/boards/${boardId}`, { memberEmail: memberEmail.trim() });
       setMemberEmail('');
+      setInviteMessage(data.message || 'Member added successfully');
       loadBoard();
     } catch (err) {
       setError(err.response?.data?.message || 'Could not add member');
@@ -312,6 +316,19 @@ export default function BoardView() {
               {error}
             </p>
           ) : null}
+          {inviteMessage ? (
+            <p className="mb-3 text-sm text-emerald-400" role="status">
+              {inviteMessage}
+            </p>
+          ) : null}
+          <div className="mb-4 text-xs text-slate-400">
+            Members:{' '}
+            {[board?.owner, ...(board?.members || [])]
+              .filter(Boolean)
+              .filter((m, idx, arr) => arr.findIndex((x) => x._id === m._id) === idx)
+              .map((m) => m.email)
+              .join(', ')}
+          </div>
 
           <DndContext
             sensors={sensors}

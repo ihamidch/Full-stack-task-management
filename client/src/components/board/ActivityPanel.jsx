@@ -9,6 +9,7 @@ function labelAction(log) {
     list_created: 'added a list',
     list_updated: 'updated a list',
     list_deleted: 'removed a list',
+    member_added: 'added a member',
   };
   return map[log.action] || log.action;
 }

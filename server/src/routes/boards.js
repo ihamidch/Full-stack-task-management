@@ -37,7 +37,7 @@ async function populateBoard(boardId) {
   };
 }
 
-router.get('/', async (req, res) => {
+router.get('/boards', async (req, res) => {
   try {
     const uid = req.userId;
     const boards = await Board.find({
@@ -54,7 +54,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/boards', async (req, res) => {
   try {
     const { title, description = '' } = req.body;
     if (!title?.trim()) {
@@ -104,7 +104,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.get('/:boardId/activity', async (req, res) => {
+router.get('/boards/:boardId/activity', async (req, res) => {
   try {
     await assertBoardMember(req.params.boardId, req.userId);
     const limit = Math.min(Number(req.query.limit) || 50, 100);
@@ -122,7 +122,7 @@ router.get('/:boardId/activity', async (req, res) => {
   }
 });
 
-router.get('/:boardId', async (req, res) => {
+router.get('/boards/:boardId', async (req, res) => {
   try {
     const { board, ok } = await getBoardIfMember(req.params.boardId, req.userId);
     if (!board) return res.status(404).json({ message: 'Board not found' });
@@ -144,21 +144,40 @@ router.get('/:boardId', async (req, res) => {
   }
 });
 
-router.patch('/:boardId', async (req, res) => {
+router.patch('/boards/:boardId', async (req, res) => {
   try {
     const board = await assertBoardMember(req.params.boardId, req.userId);
     const { title, description, memberEmail } = req.body;
+    let message = 'Board updated';
 
     if (title != null) board.title = String(title).trim();
     if (description != null) board.description = String(description).trim();
 
     if (memberEmail?.trim()) {
-      const u = await User.findOne({ email: memberEmail.toLowerCase().trim() });
+      const email = memberEmail.toLowerCase().trim();
+      const u = await User.findOne({ email });
       if (!u) {
-        return res.status(404).json({ message: 'User not found with that email' });
+        return res.status(404).json({
+          message: 'No user found with this email. The user must register first.',
+        });
+      }
+      if (board.members.some((m) => m.equals(u._id))) {
+        return res.status(409).json({ message: 'This user is already a member.' });
+      }
+      if (u._id.equals(req.userId)) {
+        return res.status(409).json({ message: 'You are already a member.' });
       }
       if (!board.members.some((m) => m.equals(u._id))) {
         board.members.push(u._id);
+        message = `Member ${email} added`;
+        await logActivity({
+          boardId: board._id,
+          userId: req.userId,
+          action: 'member_added',
+          entityType: 'Board',
+          entityId: board._id,
+          meta: { email },
+        });
       }
     }
 
@@ -174,6 +193,8 @@ router.patch('/:boardId', async (req, res) => {
     });
 
     const nested = await populateBoard(board._id);
+    await board.populate('owner', 'name email');
+    await board.populate('members', 'name email');
     const io = req.app.get('io');
     io?.to?.(`board:${board._id}`).emit('board:update', {
       type: 'board_updated',
@@ -181,6 +202,7 @@ router.patch('/:boardId', async (req, res) => {
     });
 
     res.json({
+      message,
       board: {
         ...board.toObject(),
         ...nested,
@@ -193,7 +215,7 @@ router.patch('/:boardId', async (req, res) => {
   }
 });
 
-router.delete('/:boardId', async (req, res) => {
+router.delete('/boards/:boardId', async (req, res) => {
   try {
     const board = await assertBoardMember(req.params.boardId, req.userId);
     if (!board.owner.equals(req.userId)) {
