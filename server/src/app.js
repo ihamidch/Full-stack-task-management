@@ -7,12 +7,22 @@ import taskRoutes from './routes/tasks.js';
 
 export function createApp({ io = null } = {}) {
   const app = express();
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  const rawOrigins = process.env.CLIENT_URL || 'http://localhost:5173';
+  const allowedOrigins = rawOrigins
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const allowAllOrigins = String(process.env.CORS_ALLOW_ALL || '').toLowerCase() === 'true';
 
   app.set('io', io);
   app.use(
     cors({
-      origin: clientUrl,
+      origin(origin, callback) {
+        if (!origin) return callback(null, true);
+        if (allowAllOrigins) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error('CORS origin not allowed'));
+      },
       credentials: true,
     })
   );
