@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { connectDB } from '../src/config/db.js';
-import { createApp } from '../src/app.js';
+import { createApp } from '../src/expressApp.js';
 
 const app = createApp();
 let dbReady;

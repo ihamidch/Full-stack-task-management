@@ -1,10 +1,11 @@
 import 'dotenv/config';
+import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import { connectDB } from './config/db.js';
-import { createApp } from './app.js';
-import { getBoardIfMember } from './utils/boardAccess.js';
+import { connectDB } from './src/config/db.js';
+import { createApp } from './src/expressApp.js';
+import { getBoardIfMember } from './src/utils/boardAccess.js';
 
 const app = createApp();
 const httpServer = http.createServer(app);

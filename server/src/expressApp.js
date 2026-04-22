@@ -28,6 +28,18 @@ export function createApp({ io = null } = {}) {
   );
   app.use(express.json());
 
+  app.get('/', (req, res) => {
+    res.status(200).json({
+      ok: true,
+      service: 'saas-task-api',
+      hint: 'API routes are under /api/* (start with /api/health).',
+    });
+  });
+
+  app.get(['/favicon.ico', '/favicon.png'], (_req, res) => {
+    res.status(204).end();
+  });
+
   app.get('/api/health', (req, res) => {
     res.json({ ok: true, service: 'saas-task-api' });
   });
