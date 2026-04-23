@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Login() {
@@ -18,9 +19,12 @@ export default function Login() {
     setSubmitting(true);
     try {
       await login(email, password);
+      toast.success('Welcome back!');
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed');
+      const message = err.response?.data?.message || 'Login failed';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }

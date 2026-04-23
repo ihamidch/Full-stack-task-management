@@ -20,6 +20,11 @@ export default function Navbar({ title, subtitle, showBackLink = true }) {
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-slate-400 sm:inline">{user?.name}</span>
+          {user?.role && (
+            <span className="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-indigo-300">
+              {user.role}
+            </span>
+          )}
           <button
             type="button"
             onClick={logout}

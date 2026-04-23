@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import { api } from '../../api/client.js';
 
 export default function TaskModal({ task, board, onClose, onSaved, onDeleted }) {
@@ -8,6 +9,8 @@ export default function TaskModal({ task, board, onClose, onSaved, onDeleted }) 
   const [dueDate, setDueDate] = useState(
     task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : ''
   );
+  const [status, setStatus] = useState(task.status || 'todo');
+  const [priority, setPriority] = useState(task.priority || 'medium');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
@@ -17,6 +20,8 @@ export default function TaskModal({ task, board, onClose, onSaved, onDeleted }) 
     setDescription(task.description || '');
     setAssignee(task.assignee?._id || '');
     setDueDate(task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : '');
+    setStatus(task.status || 'todo');
+    setPriority(task.priority || 'medium');
   }, [task]);
 
   const members = [
@@ -35,11 +40,16 @@ export default function TaskModal({ task, board, onClose, onSaved, onDeleted }) 
         description,
         assignee: assignee || null,
         dueDate: dueDate || null,
+        status,
+        priority,
       });
+      toast.success('Task updated');
       onSaved?.();
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || 'Could not save task');
+      const message = err.response?.data?.message || 'Could not save task';
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -51,10 +61,13 @@ export default function TaskModal({ task, board, onClose, onSaved, onDeleted }) 
     setError('');
     try {
       await api.delete(`/tasks/${task._id}`);
+      toast.success('Task deleted');
       onDeleted?.();
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || 'Could not delete');
+      const message = err.response?.data?.message || 'Could not delete';
+      setError(message);
+      toast.error(message);
     } finally {
       setDeleting(false);
     }
@@ -111,6 +124,32 @@ export default function TaskModal({ task, board, onClose, onSaved, onDeleted }) 
                 </option>
               ))}
             </select>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm text-slate-300">Status</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-indigo-500"
+              >
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-300">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-indigo-500"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
           </div>
           <div>
             <label className="mb-1 block text-sm text-slate-300">Due date</label>

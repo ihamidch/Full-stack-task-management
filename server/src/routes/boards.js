@@ -7,6 +7,8 @@ import { ActivityLog } from '../models/ActivityLog.js';
 import { authRequired, attachUser } from '../middleware/auth.js';
 import { assertBoardMember, getBoardIfMember } from '../utils/boardAccess.js';
 import { logActivity } from '../utils/activityLogger.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
+import { AppError } from '../utils/AppError.js';
 
 const router = Router();
 router.use(authRequired, attachUser);
@@ -37,28 +39,58 @@ async function populateBoard(boardId) {
   };
 }
 
-router.get('/boards', async (req, res) => {
-  try {
+router.get(
+  '/dashboard/stats',
+  asyncHandler(async (req, res) => {
+    const isAdmin = req.user?.role === 'admin';
+    const boardQuery = isAdmin ? {} : { $or: [{ owner: req.userId }, { members: req.userId }] };
+    const boards = await Board.find(boardQuery).select('_id').lean();
+    const boardIds = boards.map((board) => board._id);
+
+    const taskQuery = isAdmin ? {} : { board: { $in: boardIds } };
+    const [totalTasks, completedTasks, inProgressTasks, todoTasks] = await Promise.all([
+      Task.countDocuments(taskQuery),
+      Task.countDocuments({ ...taskQuery, status: 'completed' }),
+      Task.countDocuments({ ...taskQuery, status: 'in_progress' }),
+      Task.countDocuments({ ...taskQuery, status: 'todo' }),
+    ]);
+
+    return res.success(
+      {
+        stats: {
+          totalTasks,
+          completedTasks,
+          inProgressTasks,
+          pendingTasks: todoTasks,
+          boardCount: boardIds.length,
+        },
+      },
+      'Dashboard stats loaded'
+    );
+  })
+);
+
+router.get(
+  '/boards',
+  asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const boards = await Board.find({
-      $or: [{ owner: uid }, { members: uid }],
-    })
+    const query =
+      req.user?.role === 'admin' ? {} : { $or: [{ owner: uid }, { members: uid }] };
+    const boards = await Board.find(query)
       .sort({ updatedAt: -1 })
-      .populate('owner', 'name email')
+      .populate('owner', 'name email role')
       .lean();
 
-    res.json({ boards });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: 'Failed to load boards' });
-  }
-});
+    return res.success({ boards }, 'Boards loaded');
+  })
+);
 
-router.post('/boards', async (req, res) => {
-  try {
+router.post(
+  '/boards',
+  asyncHandler(async (req, res) => {
     const { title, description = '' } = req.body;
     if (!title?.trim()) {
-      return res.status(400).json({ message: 'Title is required' });
+      throw new AppError('Title is required', 400);
     }
 
     const board = await Board.create({
@@ -92,17 +124,18 @@ router.post('/boards', async (req, res) => {
       boardId: board._id.toString(),
     });
 
-    res.status(201).json({
-      board: {
-        ...board.toObject(),
-        ...populated,
+    return res.success(
+      {
+        board: {
+          ...board.toObject(),
+          ...populated,
+        },
       },
-    });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: 'Failed to create board' });
-  }
-});
+      'Board created',
+      201
+    );
+  })
+);
 
 router.get('/boards/:boardId/activity', async (req, res) => {
   try {

@@ -24,3 +24,12 @@ export async function assertBoardMember(boardId, userId) {
   }
   return board;
 }
+
+export function canManageTask(task, user) {
+  if (!task || !user) return false;
+  if (user.role === 'admin') return true;
+  const uid = user._id.toString();
+  const isCreator = task.createdBy?.toString?.() === uid;
+  const isAssignee = task.assignee?.toString?.() === uid;
+  return isCreator || isAssignee;
+}

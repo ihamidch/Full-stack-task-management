@@ -1,9 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
+import adminRoutes from './routes/admin.js';
 import boardRoutes from './routes/boards.js';
 import listRoutes from './routes/lists.js';
 import taskRoutes from './routes/tasks.js';
+import { attachResponseHelpers } from './utils/response.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export function createApp({ io = null } = {}) {
   const app = express();
@@ -27,6 +30,7 @@ export function createApp({ io = null } = {}) {
     })
   );
   app.use(express.json());
+  app.use(attachResponseHelpers);
 
   app.get('/', (req, res) => {
     res.status(200).json({
@@ -41,14 +45,18 @@ export function createApp({ io = null } = {}) {
   });
 
   app.get('/api/health', (req, res) => {
-    res.json({ ok: true, service: 'saas-task-api' });
+    res.success({ ok: true, service: 'saas-task-api' }, 'Service healthy');
   });
 
   app.use('/api/auth', authRoutes);
   app.use('/api/users', authRoutes);
+  app.use('/api', adminRoutes);
   app.use('/api', boardRoutes);
   app.use('/api', listRoutes);
   app.use('/api', taskRoutes);
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
 
   return app;
 }

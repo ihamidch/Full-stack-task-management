@@ -3,12 +3,16 @@ import { List } from '../models/List.js';
 import { Task } from '../models/Task.js';
 import { Board } from '../models/Board.js';
 import { authRequired, attachUser } from '../middleware/auth.js';
-import { assertBoardMember } from '../utils/boardAccess.js';
+import { assertBoardMember, canManageTask } from '../utils/boardAccess.js';
 import { logActivity } from '../utils/activityLogger.js';
 import { reorderTask } from '../utils/taskReorder.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
+import { AppError } from '../utils/AppError.js';
 
 const router = Router();
 router.use(authRequired, attachUser);
+const TASK_STATUSES = ['todo', 'in_progress', 'completed'];
+const TASK_PRIORITIES = ['low', 'medium', 'high'];
 
 async function canAssign(board, assigneeId) {
   if (!assigneeId) return true;
@@ -18,20 +22,34 @@ async function canAssign(board, assigneeId) {
   return b.owner.toString() === uid || b.members.some((m) => m.toString() === uid);
 }
 
-router.post('/lists/:listId/tasks', async (req, res) => {
-  try {
+router.post(
+  '/lists/:listId/tasks',
+  asyncHandler(async (req, res) => {
     const list = await List.findById(req.params.listId);
-    if (!list) return res.status(404).json({ message: 'List not found' });
+    if (!list) throw new AppError('List not found', 404);
 
     await assertBoardMember(list.board, req.userId);
 
-    const { title, description = '', assignee, dueDate } = req.body;
+    const {
+      title,
+      description = '',
+      assignee,
+      dueDate,
+      status = 'todo',
+      priority = 'medium',
+    } = req.body;
     if (!title?.trim()) {
-      return res.status(400).json({ message: 'Title is required' });
+      throw new AppError('Title is required', 400);
+    }
+    if (!TASK_STATUSES.includes(status)) {
+      throw new AppError('Invalid status value', 400);
+    }
+    if (!TASK_PRIORITIES.includes(priority)) {
+      throw new AppError('Invalid priority value', 400);
     }
 
     if (assignee && !(await canAssign(list.board, assignee))) {
-      return res.status(400).json({ message: 'Assignee must be a board member' });
+      throw new AppError('Assignee must be a board member', 400);
     }
 
     const maxPos = await Task.findOne({ list: list._id }).sort({ position: -1 }).select('position');
@@ -44,6 +62,8 @@ router.post('/lists/:listId/tasks', async (req, res) => {
       list: list._id,
       position,
       assignee: assignee || null,
+      status,
+      priority,
       dueDate: dueDate ? new Date(dueDate) : null,
       createdBy: req.userId,
     });
@@ -68,27 +88,27 @@ router.post('/lists/:listId/tasks', async (req, res) => {
       task: populated.toObject(),
     });
 
-    res.status(201).json({ task: populated });
-  } catch (e) {
-    if (e.status) return res.status(e.status).json({ message: e.message });
-    console.error(e);
-    res.status(500).json({ message: 'Failed to create task' });
-  }
-});
+    return res.success({ task: populated }, 'Task created', 201);
+  })
+);
 
-router.patch('/tasks/:taskId', async (req, res) => {
-  try {
+router.patch(
+  '/tasks/:taskId',
+  asyncHandler(async (req, res) => {
     const task = await Task.findById(req.params.taskId);
-    if (!task) return res.status(404).json({ message: 'Task not found' });
+    if (!task) throw new AppError('Task not found', 404);
 
     await assertBoardMember(task.board, req.userId);
+    if (!canManageTask(task, req.user)) {
+      throw new AppError('You can only update your own tasks', 403);
+    }
 
-    const { title, description, assignee, dueDate, listId, position } = req.body;
+    const { title, description, assignee, dueDate, listId, position, status, priority } = req.body;
 
     if (listId != null && position != null) {
       const targetList = await List.findById(listId);
       if (!targetList || targetList.board.toString() !== task.board.toString()) {
-        return res.status(400).json({ message: 'Invalid target list' });
+        throw new AppError('Invalid target list', 400);
       }
       const oldList = task.list.toString();
       const updated = await reorderTask(task._id, listId, Number(position));
@@ -108,7 +128,7 @@ router.patch('/tasks/:taskId', async (req, res) => {
         taskId: task._id.toString(),
       });
 
-      return res.json({ task: updated });
+      return res.success({ task: updated }, 'Task moved');
     }
 
     if (title != null) task.title = String(title).trim();
@@ -117,9 +137,17 @@ router.patch('/tasks/:taskId', async (req, res) => {
 
     if (assignee !== undefined) {
       if (assignee && !(await canAssign(task.board, assignee))) {
-        return res.status(400).json({ message: 'Assignee must be a board member' });
+        throw new AppError('Assignee must be a board member', 400);
       }
       task.assignee = assignee || null;
+    }
+    if (status != null) {
+      if (!TASK_STATUSES.includes(status)) throw new AppError('Invalid status value', 400);
+      task.status = status;
+    }
+    if (priority != null) {
+      if (!TASK_PRIORITIES.includes(priority)) throw new AppError('Invalid priority value', 400);
+      task.priority = priority;
     }
 
     await task.save();
@@ -143,20 +171,20 @@ router.patch('/tasks/:taskId', async (req, res) => {
       task: populated.toObject(),
     });
 
-    res.json({ task: populated });
-  } catch (e) {
-    if (e.status) return res.status(e.status).json({ message: e.message });
-    console.error(e);
-    res.status(500).json({ message: 'Failed to update task' });
-  }
-});
+    return res.success({ task: populated }, 'Task updated');
+  })
+);
 
-router.delete('/tasks/:taskId', async (req, res) => {
-  try {
+router.delete(
+  '/tasks/:taskId',
+  asyncHandler(async (req, res) => {
     const task = await Task.findById(req.params.taskId);
-    if (!task) return res.status(404).json({ message: 'Task not found' });
+    if (!task) throw new AppError('Task not found', 404);
 
     await assertBoardMember(task.board, req.userId);
+    if (!canManageTask(task, req.user)) {
+      throw new AppError('You can only delete your own tasks', 403);
+    }
 
     const boardId = task.board.toString();
     const listId = task.list;
@@ -183,12 +211,26 @@ router.delete('/tasks/:taskId', async (req, res) => {
       taskId: req.params.taskId,
     });
 
-    res.json({ message: 'Task deleted' });
-  } catch (e) {
-    if (e.status) return res.status(e.status).json({ message: e.message });
-    console.error(e);
-    res.status(500).json({ message: 'Failed to delete task' });
-  }
-});
+    return res.success({}, 'Task deleted');
+  })
+);
+
+router.get(
+  '/boards/:boardId/tasks',
+  asyncHandler(async (req, res) => {
+    await assertBoardMember(req.params.boardId, req.userId);
+    const { status, priority } = req.query;
+    const query = { board: req.params.boardId };
+    if (status && TASK_STATUSES.includes(status)) query.status = status;
+    if (priority && TASK_PRIORITIES.includes(priority)) query.priority = priority;
+
+    const tasks = await Task.find(query)
+      .sort({ updatedAt: -1 })
+      .populate('assignee', 'name email')
+      .populate('createdBy', 'name email role')
+      .lean();
+    return res.success({ tasks }, 'Tasks loaded');
+  })
+);
 
 export default router;

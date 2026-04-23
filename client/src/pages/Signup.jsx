@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Signup() {
@@ -19,9 +20,12 @@ export default function Signup() {
     setSubmitting(true);
     try {
       await register(name, email, password);
+      toast.success('Account created successfully');
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || 'Signup failed');
+      const message = err.response?.data?.message || 'Signup failed';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }

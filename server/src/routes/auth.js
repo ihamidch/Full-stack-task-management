@@ -2,7 +2,10 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
+import { Task } from '../models/Task.js';
 import { authRequired, attachUser } from '../middleware/auth.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
+import { AppError } from '../utils/AppError.js';
 
 const router = Router();
 
@@ -12,64 +15,101 @@ function signToken(userId) {
   });
 }
 
-router.post('/register', async (req, res) => {
-  try {
+function getInitialRole(email) {
+  const adminEmails = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return adminEmails.includes(email) ? 'admin' : 'user';
+}
+
+function serializeUser(user) {
+  return { id: user._id, name: user.name, email: user.email, role: user.role };
+}
+
+router.post(
+  '/register',
+  asyncHandler(async (req, res) => {
     const { name, email, password } = req.body;
-    if (!name?.trim() || !email?.trim() || !password) {
-      return res.status(400).json({ message: 'Name, email, and password are required' });
+    const normalizedEmail = String(email || '').toLowerCase().trim();
+    const normalizedName = String(name || '').trim();
+    if (!normalizedName || !normalizedEmail || !password) {
+      throw new AppError('Name, email, and password are required', 400);
     }
     if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+      throw new AppError('Password must be at least 6 characters', 400);
     }
-    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
-      return res.status(409).json({ message: 'Email already registered' });
+      throw new AppError('Email already registered', 409);
     }
     const hash = await bcrypt.hash(password, 10);
     const user = await User.create({
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
+      name: normalizedName,
+      email: normalizedEmail,
       password: hash,
+      role: getInitialRole(normalizedEmail),
     });
     const token = signToken(user._id);
-    res.status(201).json({
-      token,
-      user: { id: user._id, name: user.name, email: user.email },
-    });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: 'Registration failed' });
-  }
-});
+    return res.success({ token, user: serializeUser(user) }, 'Registration successful', 201);
+  })
+);
 
-router.post('/login', async (req, res) => {
-  try {
+router.post(
+  '/login',
+  asyncHandler(async (req, res) => {
     const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+    const normalizedEmail = String(email || '').toLowerCase().trim();
+    if (!normalizedEmail || !password) {
+      throw new AppError('Email and password are required', 400);
     }
-    const user = await User.findOne({ email: email.toLowerCase().trim() }).select('+password');
+    const user = await User.findOne({ email: normalizedEmail }).select('+password');
     if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      throw new AppError('Invalid email or password', 401);
     }
     const token = signToken(user._id);
-    res.json({
-      token,
-      user: { id: user._id, name: user.name, email: user.email },
-    });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: 'Login failed' });
-  }
-});
+    return res.success({ token, user: serializeUser(user) }, 'Login successful');
+  })
+);
 
-router.get('/me', authRequired, attachUser, async (req, res) => {
-  if (!req.user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
-  res.json({
-    user: { id: req.user._id, name: req.user.name, email: req.user.email },
-  });
-});
+router.get(
+  '/me',
+  authRequired,
+  attachUser,
+  asyncHandler(async (req, res) => {
+    if (!req.user) {
+      throw new AppError('User not found', 404);
+    }
+    return res.success({ user: serializeUser(req.user) }, 'User loaded');
+  })
+);
+
+router.get(
+  '/users',
+  authRequired,
+  attachUser,
+  asyncHandler(async (req, res) => {
+    if (req.user?.role !== 'admin') {
+      throw new AppError('Forbidden', 403);
+    }
+    const users = await User.find().select('name email role createdAt').sort({ createdAt: -1 }).lean();
+    return res.success({ users }, 'Users loaded');
+  })
+);
+
+router.get(
+  '/tasks',
+  authRequired,
+  attachUser,
+  asyncHandler(async (req, res) => {
+    const query = req.user?.role === 'admin' ? {} : { createdBy: req.userId };
+    const tasks = await Task.find(query)
+      .sort({ updatedAt: -1 })
+      .populate('assignee', 'name email')
+      .populate('createdBy', 'name email role')
+      .lean();
+    return res.success({ tasks }, 'Tasks loaded');
+  })
+);
 
 export default router;

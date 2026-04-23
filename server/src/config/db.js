@@ -10,9 +10,9 @@ export async function connectDB() {
     return cached.conn;
   }
 
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
   if (!uri) {
-    throw new Error('MONGODB_URI is not defined');
+    throw new Error('MONGODB_URI or MONGO_URI is not defined');
   }
 
   if (!cached.promise) {

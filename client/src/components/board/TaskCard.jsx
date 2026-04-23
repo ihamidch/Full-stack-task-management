@@ -8,6 +8,18 @@ function formatDue(d) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+const PRIORITY_STYLES = {
+  low: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30',
+  medium: 'bg-amber-500/10 text-amber-300 border border-amber-500/30',
+  high: 'bg-rose-500/10 text-rose-300 border border-rose-500/30',
+};
+
+const STATUS_LABELS = {
+  todo: 'To Do',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+};
+
 export default function TaskCard({ task, onOpen }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task._id,
@@ -37,6 +49,18 @@ export default function TaskCard({ task, onOpen }) {
         {task.description ? (
           <p className="mt-1 line-clamp-2 text-xs text-slate-400">{task.description}</p>
         ) : null}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <span className="rounded-md border border-slate-600/70 bg-slate-700/70 px-1.5 py-0.5 text-[10px] font-medium text-slate-200">
+            {STATUS_LABELS[task.status] || 'To Do'}
+          </span>
+          <span
+            className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+              PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium
+            }`}
+          >
+            {(task.priority || 'medium').toUpperCase()}
+          </span>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
           {task.assignee && (
             <span className="rounded bg-slate-700/80 px-1.5 py-0.5 text-slate-200">

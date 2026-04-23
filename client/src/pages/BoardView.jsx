@@ -11,6 +11,7 @@ import {
 import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { io } from 'socket.io-client';
+import toast from 'react-hot-toast';
 import { api, getSocketUrl, isRealtimeEnabled } from '../api/client.js';
 import Navbar from '../components/Navbar.jsx';
 import TaskCard from '../components/board/TaskCard.jsx';
@@ -31,6 +32,13 @@ function buildItemsFromBoard(board) {
     next[l._id] = (l.tasks || []).map((t) => t._id);
   }
   return next;
+}
+
+function inferStatusFromListTitle(title = '') {
+  const normalized = title.toLowerCase();
+  if (normalized.includes('progress')) return 'in_progress';
+  if (normalized.includes('done') || normalized.includes('complete')) return 'completed';
+  return 'todo';
 }
 
 function BoardColumn({ list, taskIds, tasksById, onOpenTask }) {
@@ -74,6 +82,8 @@ export default function BoardView() {
   const [newTasks, setNewTasks] = useState({});
   const [memberEmail, setMemberEmail] = useState('');
   const [inviteMessage, setInviteMessage] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
 
   const tasksById = useMemo(() => {
     const m = {};
@@ -93,8 +103,10 @@ export default function BoardView() {
       const { data } = await api.get(`/boards/${boardId}`);
       setBoard(data.board);
       setItems(buildItemsFromBoard(data.board));
-    } catch {
-      setError('Could not load board');
+    } catch (err) {
+      const message = err.response?.data?.message || 'Could not load board';
+      setError(message);
+      toast.error(message);
       setBoard(null);
     } finally {
       setLoading(false);
@@ -186,7 +198,10 @@ export default function BoardView() {
       const newOrder = arrayMove(items[activeContainer], oldIndex, newIndex);
       setItems((prev) => ({ ...prev, [activeContainer]: newOrder }));
       const pos = newOrder.indexOf(activeId);
-      persistMove(activeId, activeContainer, pos).catch(() => loadBoard());
+      persistMove(activeId, activeContainer, pos).catch(() => {
+        toast.error('Could not move task');
+        loadBoard();
+      });
     } else {
       const from = [...items[activeContainer]];
       const to = [...items[overContainer]];
@@ -210,7 +225,10 @@ export default function BoardView() {
         [activeContainer]: from,
         [overContainer]: to,
       }));
-      persistMove(activeId, overContainer, toIndex).catch(() => loadBoard());
+      persistMove(activeId, overContainer, toIndex).catch(() => {
+        toast.error('Could not move task');
+        loadBoard();
+      });
     }
   }
 
@@ -234,11 +252,18 @@ export default function BoardView() {
     const title = (newTasks[listId] || '').trim();
     if (!title) return;
     try {
-      await api.post(`/lists/${listId}/tasks`, { title });
+      const list = (board?.lists || []).find((item) => item._id === listId);
+      await api.post(`/lists/${listId}/tasks`, {
+        title,
+        status: inferStatusFromListTitle(list?.title),
+      });
       setNewTasks((s) => ({ ...s, [listId]: '' }));
+      toast.success('Task added');
       loadBoard();
-    } catch {
-      setError('Could not add task');
+    } catch (err) {
+      const message = err.response?.data?.message || 'Could not add task';
+      setError(message);
+      toast.error(message);
     }
   }
 
@@ -251,9 +276,12 @@ export default function BoardView() {
       const { data } = await api.patch(`/boards/${boardId}`, { memberEmail: memberEmail.trim() });
       setMemberEmail('');
       setInviteMessage(data.message || 'Member added successfully');
+      toast.success(data.message || 'Member added successfully');
       loadBoard();
     } catch (err) {
-      setError(err.response?.data?.message || 'Could not add member');
+      const message = err.response?.data?.message || 'Could not add member';
+      setError(message);
+      toast.error(message);
     }
   }
 
@@ -310,6 +338,28 @@ export default function BoardView() {
                 Add member
               </button>
             </form>
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-indigo-500"
+              >
+                <option value="all">All statuses</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-indigo-500"
+              >
+                <option value="all">All priorities</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
           </div>
 
           {error ? (
@@ -343,7 +393,14 @@ export default function BoardView() {
                 <div key={list._id} className="flex w-72 shrink-0 flex-col gap-2">
                   <BoardColumn
                     list={list}
-                    taskIds={items[list._id] || []}
+                    taskIds={(items[list._id] || []).filter((taskId) => {
+                      const task = tasksById[taskId];
+                      if (!task) return false;
+                      const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
+                      const matchesPriority =
+                        priorityFilter === 'all' || task.priority === priorityFilter;
+                      return matchesStatus && matchesPriority;
+                    })}
                     tasksById={tasksById}
                     onOpenTask={onOpenTask}
                   />
