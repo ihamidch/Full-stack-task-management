@@ -6,10 +6,11 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const router = Router();
 
-router.use(authRequired, attachUser, requireRole('admin'));
-
 router.get(
   '/admin/users',
+  authRequired,
+  attachUser,
+  requireRole('admin'),
   asyncHandler(async (_req, res) => {
     const users = await User.find().select('name email role createdAt').sort({ createdAt: -1 }).lean();
     return res.success({ users }, 'Users loaded');
@@ -18,6 +19,9 @@ router.get(
 
 router.get(
   '/admin/tasks',
+  authRequired,
+  attachUser,
+  requireRole('admin'),
   asyncHandler(async (req, res) => {
     const { status, priority } = req.query;
     const query = {};
